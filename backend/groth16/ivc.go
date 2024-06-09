@@ -7,10 +7,6 @@ import (
 	cs "github.com/consensys/gnark/constraint/bn254"
 )
 
-type FoldProof struct {
-	Primary   CommitedRelaxedR1CS
-	Secondary CommitedRelaxedR1CS
-}
 
 func IVCSetup(r1cs *cs.R1CS) (pk_e, pk_w PedersenKey, err error) {
 	if pk_e, err = PedersenSetup(r1cs.GetNbConstraints()); err != nil {
