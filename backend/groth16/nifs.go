@@ -15,7 +15,6 @@ import (
 )
 
 type CommitedRelaxedR1CS struct {
-	// constraint.R1CSCore
 	// Instance
 	Com_E bn254.G1Affine
 	U     fr.Element
@@ -28,16 +27,16 @@ type CommitedRelaxedR1CS struct {
 	Rand_W fr.Element
 }
 
-func NewCommittedRelaxedR1CS(m, l int, pk_e, pk_w PedersenKey) *CommitedRelaxedR1CS {
+func NewCommittedRelaxedR1CS(n, m, l int, pk_e, pk_w PedersenKey) (*CommitedRelaxedR1CS, error) {
 	rand_e, rand_w := fr.NewElement(0), fr.NewElement(0)
-	e, w := makeZeroElements(m), makeZeroElements(m-l-1)
+	e, w := makeZeroElements(n), makeZeroElements(m-l-1)
 	com_e, err := pk_e.Commit(e, rand_e)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	com_w, err := pk_w.Commit(w, rand_w)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	return &CommitedRelaxedR1CS{
 		Com_E:  com_e,
@@ -48,7 +47,7 @@ func NewCommittedRelaxedR1CS(m, l int, pk_e, pk_w PedersenKey) *CommitedRelaxedR
 		U:      fr.NewElement(0),
 		Rand_E: rand_e,
 		Rand_W: rand_w,
-	}
+	}, nil
 }
 
 // witness = [publicWires | secretWires] (without the ONE_WIRE !)
@@ -87,7 +86,7 @@ func NewCommittedRelaxedR1CSFromInstance(r1cs *cs.R1CS, witness fr.Vector, pk_e,
 	rand_e_fr.SetBigInt(rand_e)
 	rand_w_fr.SetBigInt(rand_w)
 
-	e := makeZeroElements(len(wireValues))
+	e := makeZeroElements(len(r1cs.Constraints))
 	com_e, err := pk_e.Commit(e, rand_e_fr)
 	if err != nil {
 		panic(err)
@@ -115,7 +114,7 @@ func NewCommittedRelaxedR1CSFromInstance(r1cs *cs.R1CS, witness fr.Vector, pk_e,
 }
 
 // Z = (x, u, w)
-func (primary *CommitedRelaxedR1CS) FoldProve(r1cs *cs.R1CS, secondary *CommitedRelaxedR1CS, pk_e PedersenKey) (*CommitedRelaxedR1CS, error) {
+func (primary *CommitedRelaxedR1CS) FoldProve(r1cs *cs.R1CS, secondary *CommitedRelaxedR1CS, pk_e PedersenKey) (*CommitedRelaxedR1CS, bn254.G1Affine, error) {
 	// Compute T
 	z1 := append(append(primary.X, primary.U), primary.W...)
 	z2 := append(append(secondary.X, secondary.U), secondary.W...)
@@ -127,14 +126,14 @@ func (primary *CommitedRelaxedR1CS) FoldProve(r1cs *cs.R1CS, secondary *Commited
 	// Commit T
 	rand_t, err := rand.Int(rand.Reader, fr.Modulus())
 	if err != nil {
-		return nil, err
+		return nil, bn254.G1Affine{}, err
 	}
 	rand_t_fr := fr.NewElement(0)
 	rand_t_fr.SetBigInt(rand_t)
 
 	com_t, err := pk_e.Commit(t, rand_t_fr)
 	if err != nil {
-		return nil, err
+		return nil, bn254.G1Affine{}, err
 	}
 
 	//Sample random r
@@ -211,7 +210,7 @@ func (primary *CommitedRelaxedR1CS) FoldProve(r1cs *cs.R1CS, secondary *Commited
 		W:      new_w,
 		Rand_E: new_rand_e,
 		Rand_W: new_rand_w,
-	}, nil
+	}, com_t, nil
 }
 
 // Z = (x, u, w)
