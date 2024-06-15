@@ -137,7 +137,7 @@ func (primary *CommitedRelaxedR1CS) FoldProve(r1cs *cs.R1CS, secondary *Commited
 	}
 
 	//Sample random r
-	com_t_bytes := com_t.Bytes()
+	com_t_bytes := com_t.RawBytes()
 	r_val := mimcHash(com_t_bytes[:])
 	
 	// Compute folded instance
@@ -216,8 +216,13 @@ func (primary *CommitedRelaxedR1CS) FoldProve(r1cs *cs.R1CS, secondary *Commited
 // Z = (x, u, w)
 func (primary *CommitedRelaxedR1CS) FoldVerify(r1cs *cs.R1CS, secondary *CommitedRelaxedR1CS, com_t bn254.G1Affine) (*CommitedRelaxedR1CS, error) {
 	//Sample random r
-	com_t_bytes := com_t.Bytes()
-	r_val := mimcHash(com_t_bytes[:])
+	com_t_jacob := bn254.G1Jac{}
+	com_t_jacob.FromAffine(&com_t)
+	var buf [96]byte
+	copy(buf[:32], com_t_jacob.X.Marshal())
+	copy(buf[32:64], com_t_jacob.Y.Marshal())
+	copy(buf[64:], com_t_jacob.Z.Marshal())
+	r_val := mimcHash(buf[:])
 	
 	// Compute folded instance
 	new_com_e := bn254.G1Affine{}
