@@ -127,7 +127,11 @@ func (circuit *ExpandCircuit) Define(api frontend.API) error {
 	hasher1.Write(emptyIns.U)
 	hasher1.Write(emptyIns.Com_W.X)
 	hasher1.Write(emptyIns.Com_W.Y)
-	hasher1.Write(emptyIns.X)
+	xVar := make([]frontend.Variable, len(emptyIns.X))
+	for i := 0; i < len(emptyIns.X); i++ {
+		xVar[i] = emptyIns.X[i]
+	}
+	hasher1.Write(xVar...)
 	ret0 := hasher1.Sum()
 
 	// Idx > 0
