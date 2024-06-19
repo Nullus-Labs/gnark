@@ -1,26 +1,33 @@
 package groth16
 
 import (
+	"math/big"
+
+	"github.com/consensys/gnark-crypto/ecc/bn254"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/hash/mimc"
 )
 
+// Need initialization after compiling the expansion circuit
+var Param Params
+
 type ExpandCircuit struct {
-	BigInstance CommitedRelaxedR1CSVariable
+	BigInstance   CommitedRelaxedR1CSVariable
 	SmallInstance CommitedRelaxedR1CSVariable
-	Z0  []frontend.Variable
-	Zi  []frontend.Variable
-	Com_T G1Point
-	X_Out frontend.Variable
-	Idx frontend.Variable
-	Param Params
+	Z0            []frontend.Variable
+	Zi            []frontend.Variable
+	Wi            []frontend.Variable
+	Com_T         G1Point
+	X_Out         frontend.Variable `gnark:",public"`
+	Idx           frontend.Variable
+	U             frontend.Variable `gnark:",public"`
 }
 
 type CommitedRelaxedR1CSVariable struct {
 	Com_E G1Point
 	Com_W G1Point
-	U    frontend.Variable
-	X    frontend.Variable
+	U     frontend.Variable
+	X     [3]frontend.Variable
 }
 
 type G1Point struct {
@@ -31,7 +38,7 @@ type G1Point struct {
 
 type Params struct {
 	M, N, L int
-	Pe, Pw PedersenKey
+	Pe, Pw  PedersenKey
 }
 
 func PointAdd(api frontend.API, p1, p2 *G1Point) *G1Point {
@@ -42,7 +49,7 @@ func PointAdd(api frontend.API, p1, p2 *G1Point) *G1Point {
 	u2 := api.Mul(p2.X, p1.Z, p1.Z)
 	s1 := api.Mul(p1.Y, p2.Z, p2.Z, p2.Z)
 	s2 := api.Mul(p2.Y, p1.Z, p1.Z, p1.Z)
-	h := api.Sub(u2, u1)	
+	h := api.Sub(u2, u1)
 	r := api.Sub(s2, s1)
 	hIsZero := api.IsZero(h)
 	hrIsZero := api.Mul(hIsZero, api.IsZero(r))
@@ -116,17 +123,23 @@ func (circuit *ExpandCircuit) Define(api frontend.API) error {
 	}
 	hasher1.Write(frontend.Variable(1))
 	hasher1.Write(circuit.Z0...)
-	z1 := SHA256PlaceHolder(api, circuit.Z0)
+	z1 := block(api, circuit.Z0, circuit.Wi)
 	hasher1.Write(z1)
-	emptyIns, err := NewCommittedRelaxedR1CS(circuit.Param.N, circuit.Param.M, circuit.Param.L, circuit.Param.Pe, circuit.Param.Pw)
+	emptyIns, err := NewCommittedRelaxedR1CS(Param.N, Param.M, Param.L, Param.Pe, Param.Pw)
 	if err != nil {
 		return err
 	}
-	hasher1.Write(emptyIns.Com_E.X)
-	hasher1.Write(emptyIns.Com_E.Y)
+	comEJac := bn254.G1Jac{}
+	comEJac.FromAffine(&emptyIns.Com_E)
+	hasher1.Write(comEJac.X.BigInt(new(big.Int)))
+	hasher1.Write(comEJac.Y.BigInt(new(big.Int)))
+	hasher1.Write(comEJac.Z.BigInt(new(big.Int)))
 	hasher1.Write(emptyIns.U)
-	hasher1.Write(emptyIns.Com_W.X)
-	hasher1.Write(emptyIns.Com_W.Y)
+	comWJac := bn254.G1Jac{}
+	comWJac.FromAffine(&emptyIns.Com_W)
+	hasher1.Write(comWJac.X.BigInt(new(big.Int)))
+	hasher1.Write(comWJac.Y.BigInt(new(big.Int)))
+	hasher1.Write(comWJac.Z.BigInt(new(big.Int)))
 	xVar := make([]frontend.Variable, len(emptyIns.X))
 	for i := 0; i < len(emptyIns.X); i++ {
 		xVar[i] = emptyIns.X[i]
@@ -149,8 +162,8 @@ func (circuit *ExpandCircuit) Define(api frontend.API) error {
 	hasher2.Write(circuit.BigInstance.Com_W.X)
 	hasher2.Write(circuit.BigInstance.Com_W.Y)
 	hasher2.Write(circuit.BigInstance.Com_W.Z)
-	hasher2.Write(circuit.BigInstance.X)
-	isValid1 := IsEqual(api, circuit.SmallInstance.X, hasher2.Sum())	
+	hasher2.Write(circuit.BigInstance.X[:]...)
+	isValid1 := IsEqual(api, circuit.SmallInstance.X, hasher2.Sum())
 	isValid2 := IsEqual(api, circuit.SmallInstance.Com_E, emptyIns.Com_E)
 	isValid3 := IsEqual(api, circuit.SmallInstance.U, 1)
 	newBigInstance, err := FoldVerifyCircuit(api, circuit.BigInstance, circuit.SmallInstance, circuit.Com_T)
@@ -164,7 +177,7 @@ func (circuit *ExpandCircuit) Define(api frontend.API) error {
 	}
 	hasher3.Write(api.Add(circuit.Idx, 1))
 	hasher3.Write(circuit.Z0...)
-	newZ := SHA256PlaceHolder(api, circuit.Zi)
+	newZ := block(api, circuit.Zi, circuit.Wi)
 	hasher3.Write(newZ...)
 	hasher3.Write(newBigInstance.Com_E.X)
 	hasher3.Write(newBigInstance.Com_E.Y)
@@ -173,7 +186,7 @@ func (circuit *ExpandCircuit) Define(api frontend.API) error {
 	hasher3.Write(newBigInstance.Com_W.X)
 	hasher3.Write(newBigInstance.Com_W.Y)
 	hasher3.Write(newBigInstance.Com_W.Z)
-	hasher3.Write(newBigInstance.X)
+	hasher3.Write(newBigInstance.X[:]...)
 	ret1 := hasher3.Sum()
 	isValid4 := api.Select(api.IsZero(circuit.Idx), IsEqual(api, circuit.X_Out, ret0), IsEqual(api, circuit.X_Out, ret1))
 	api.AssertIsEqual(api.Add(isValid1, isValid2, isValid3, isValid4), 4)
@@ -194,11 +207,14 @@ func FoldVerifyCircuit(api frontend.API, bigInstance, smallInstance CommitedRela
 	new_u := api.Add(bigInstance.U, api.Mul(r, smallInstance.U))
 	rw2 := PointScalarMult(api, &smallInstance.Com_W, rSquare)
 	new_com_w := PointAdd(api, &bigInstance.Com_W, rw2)
-	new_x := api.Add(bigInstance.X, api.Mul(r, smallInstance.X))
+	new_x := [3]frontend.Variable{}
+	new_x[0] = api.Add(bigInstance.X[0], api.Mul(r, smallInstance.X[0]))
+	new_x[1] = api.Add(bigInstance.X[1], api.Mul(r, smallInstance.X[1]))
+	new_x[2] = api.Add(bigInstance.X[2], api.Mul(r, smallInstance.X[2]))
 	return CommitedRelaxedR1CSVariable{Com_E: *new_com_e, Com_W: *new_com_w, U: new_u, X: new_x}, nil
 }
 
-func SHA256PlaceHolder(api frontend.API, x []frontend.Variable) []frontend.Variable {
+func SHA256PlaceHolder(api frontend.API, h, x []frontend.Variable) []frontend.Variable {
 	return x
 }
 

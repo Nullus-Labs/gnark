@@ -52,12 +52,12 @@ func NewCommittedRelaxedR1CS(n, m, l int, pk_e, pk_w PedersenKey) (*CommitedRela
 
 // witness = [publicWires | secretWires] (without the ONE_WIRE !)
 func NewCommittedRelaxedR1CSFromInstance(r1cs *cs.R1CS, witness fr.Vector, pk_e, pk_w PedersenKey) (*CommitedRelaxedR1CS, error) {
-	new_witness := make([]fr.Element, len(witness)+1)
-	nbPublic := r1cs.GetNbPublicVariables()
-	copy(new_witness[:nbPublic], witness[:nbPublic])
-	copy(new_witness[nbPublic+1:], witness[nbPublic:])
-	new_witness[nbPublic] = fr.NewElement(1)
-	r1cs.AddPublicVariable("u")
+	// new_witness := make([]fr.Element, len(witness)+1)
+	// nbPublic := r1cs.GetNbPublicVariables()
+	// copy(new_witness[:nbPublic], witness[:nbPublic])
+	// copy(new_witness[nbPublic+1:], witness[nbPublic:])
+	// new_witness[nbPublic] = fr.NewElement(1)
+	// r1cs.AddPublicVariable("u")
 	// solve the R1CS and compute the a, b, c vectors
 	a := make([]fr.Element, len(r1cs.Constraints))
 	b := make([]fr.Element, len(r1cs.Constraints))
@@ -69,7 +69,7 @@ func NewCommittedRelaxedR1CSFromInstance(r1cs *cs.R1CS, witness fr.Vector, pk_e,
 	if err != nil {
 		return nil, err
 	}
-	if wireValues, err = r1cs.Solve(new_witness, a, b, c, opt); err != nil {
+	if wireValues, err = r1cs.Solve(witness, a, b, c, opt); err != nil {
 		return nil, err
 	}
 	x := wireValues[:r1cs.GetNbPublicVariables()-1]
